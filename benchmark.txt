@@ -1,0 +1,18 @@
+In 30 minutes:
+
+4214 solutions found
+
+In 60 minutes:
+
+10214 solultions found - at this rate, with a total solutions close to 30 million, we would expect this to take roughly 122 days
+
+
+
+
+Threads per block vs solultions in 1 minute
+64      -   18
+256     -   16
+1024    -   11
+
+With one fewer loop replaced by gid + indexing:
+64      -   235
