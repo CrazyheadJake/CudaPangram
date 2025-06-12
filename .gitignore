@@ -1,0 +1,5 @@
+build/
+Debug/
+include/filteredWords.inl
+words.txt
+masks.txt
