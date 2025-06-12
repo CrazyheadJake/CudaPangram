@@ -1,3 +1,0 @@
-C:/Users/jaked/VS Code/C++/CudaPangram/build/CMakeFiles/CudaPangram.dir
-C:/Users/jaked/VS Code/C++/CudaPangram/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/jaked/VS Code/C++/CudaPangram/build/CMakeFiles/ZERO_CHECK.dir

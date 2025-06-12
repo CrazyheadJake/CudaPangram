@@ -1,5 +1,7 @@
 build/
 Debug/
 include/filteredWords.inl
+include/filteredWords.inl
 words.txt
 masks.txt
+all_words.inl
