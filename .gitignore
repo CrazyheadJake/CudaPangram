@@ -5,3 +5,6 @@ include/filteredWords.inl
 words.txt
 masks.txt
 all_words.inl
+CudaPangram.exe
+CudaPangram.pdb
+.vscode

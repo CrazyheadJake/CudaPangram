@@ -7,19 +7,19 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <cassert>
 #include "filteredWords.inl"
 
 namespace fs = std::filesystem;
 
 const int THREADSPERBLOCK = 64;
-const int WORDS = 14855;
-const int WORDS_SIZE =  WORDS * sizeof(uint32_t);
 const int FILTEREDWORDS = 8401;
 const int FILTEREDWORDS_SIZE = FILTEREDWORDS * sizeof(uint32_t);
-const int BLOCKS = ((FILTEREDWORDS * FILTEREDWORDS) / THREADSPERBLOCK) + 1;
+const int BLOCKS = 16384;
+const int STRIDE = BLOCKS*THREADSPERBLOCK;
 const int SOLUTIONS_SIZE = 80000000;
 
-__device__ int solutionIdx = 0;
+__device__ uint32_t solutionIdx = 0;
 
 const int PANGRAMMASK = 67108863;       //stringToMask("abcdefghijklmnopqrstuvwxyz")
 
@@ -30,64 +30,49 @@ struct Solution {
 
 // CUDA kernel
 __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions) {
-    unsigned int gid = blockIdx.x*blockDim.x + threadIdx.x;
-    unsigned int start0 = gid / FILTEREDWORDS;
-    unsigned int start1 = start0 + gid % FILTEREDWORDS;
+    uint32_t gridId = (blockIdx.x*blockDim.x + threadIdx.x);
+    uint32_t idx;
+    uint32_t w2, w3, w4, w5;
+    uint32_t m1, m2, m3, m4, m5;
+    uint32_t start0, start1;
+    uint32_t gid;
+    for (gid = gridId; gid < FILTEREDWORDS*FILTEREDWORDS; gid += STRIDE) {
+    start0 = gid / FILTEREDWORDS;
+    start1 = start0 + gid % FILTEREDWORDS;
+   
     if (start0 >= FILTEREDWORDS || start1 >= FILTEREDWORDS)
-        return;
-    Solution sln = {start0, start1, 0, 0, 0, 0};
-    uint32_t masks[6] = {dMasks[sln.words[0]], dMasks[sln.words[0]] | dMasks[sln.words[1]], 0, 0, 0, 0};
-    // printf("Starting thread idx: %d\n", gid);
-    int letterCount;
+        continue;
+
     
-    // for (sln.words[1] = sln.words[0] + 1; sln.words[1] < FILTEREDWORDS; sln.words[1]++) {
-    //     masks[1] = dMasks[sln.words[1]] | masks[0];
-    //     // Don't need to check letter count, all possible words here lead to valid solutions
-    //     // printf("Current word at depth 1: %d\n", sln.words[1]);
+    m1 = dMasks[start0] | dMasks[start1];    
+    for (w2 = start1 + 1; w2 < FILTEREDWORDS; w2++) {
+        m2 = dMasks[w2] | m1;
+        if (__popc(m2) < 11)    // Count how many bits in the mask are set 
+            continue;
 
-    //     // Exit early to check if output works
-    //     if (sln.words[1] == 5)
-    //         return;
-
-        for (sln.words[2] = sln.words[1] + 1; sln.words[2] < FILTEREDWORDS; sln.words[2]++) {
-            masks[2] = dMasks[sln.words[2]] | masks[1];
-            letterCount = __popc(masks[2]);     // Count how many bits in the mask are set
-            // printf("Letter Count: %d\n", letterCount);
-            if (letterCount < 11)
+        for (w3 = w2 + 1; w3 < FILTEREDWORDS; w3++) {
+            m3 = dMasks[w3] | m2;
+            if (__popc(m3) < 16)    // Count how many bits in the mask are set 
                 continue;
 
-            for (sln.words[3] = sln.words[2] + 1; sln.words[3] < FILTEREDWORDS; sln.words[3]++) {
-                masks[3] = dMasks[sln.words[3]] | masks[2];
-                letterCount = __popc(masks[3]);     // Count how many bits in the mask are set
-                    if (letterCount < 16)
-                        continue;
+            for (w4 = w3 + 1; w4 < FILTEREDWORDS; w4++) {
+                m4 = dMasks[w4] | m3;
+                if (__popc(m4) < 21)    // Count how many bits in the mask are set 
+                    continue;
 
-                for (sln.words[4] = sln.words[3] + 1; sln.words[4] < FILTEREDWORDS; sln.words[4]++) {
-                    masks[4] = dMasks[sln.words[4]] | masks[3];
-                    letterCount = __popc(masks[4]);     // Count how many bits in the mask are set
-                    if (letterCount < 21)
-                        continue;
-
-                    for (sln.words[5] = sln.words[4] + 1; sln.words[5] < FILTEREDWORDS; sln.words[5]++) {
-                        masks[5] = dMasks[sln.words[5]] | masks[4];
-
-                        // Print out the state of the program
-                        // printf("Mask: %d, \t\tWords: %d, %d, %d, %d, %d, %d\n", masks[5], sln.words[0], sln.words[1], sln.words[2], sln.words[3], sln.words[4], sln.words[5]);
-
-                        if (masks[5] == PANGRAMMASK) {
-                            // Atomically increment the counter to reserve the index
-                            int idx = atomicAdd(&solutionIdx, 1);
-
-                            dSolutions[idx] = sln;
-                            printf("%d, %d, %d, %d, %d, %d\n", sln.words[0], sln.words[1], sln.words[2], sln.words[3], sln.words[4], sln.words[5]);
-
-                        }
+                for (w5 = w4 + 1; w5 < FILTEREDWORDS; w5++) {
+                    if ((dMasks[w5] | m4) == PANGRAMMASK) {
+                        // Atomically increment the counter to reserve the index
+                        idx = atomicAdd(&solutionIdx, 1);
+                        dSolutions[idx] = {start0, start1, w2, w3, w4, w5};
+                        // printf("%d, %d, %d, %d, %d, %d\t\tMasks: %d, %d, %d, %d, %d\n", w0, w1, w2, w3, w4, w5, dMasks[w1], dMasks[w2], dMasks[w3], dMasks[w4], dMasks[w5]);
+                        printf("Solutions: %d\n", idx + 1);
                     }
                 }
             }
         }
-    // }
-    // printf("Thread idx %d done!\n", gid);
+    }
+}
 }
 
 uint32_t stringToMask(const std::string& str) {
@@ -170,23 +155,32 @@ void printDeviceInfo() {
     std::cout << "Number of CUDA Cores: " << props.multiProcessorCount * 128 << "\n";
 }
 
+void checkCudaErrors() {
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA kernel launch error: %s\n", cudaGetErrorString(err));
+    }
+}
+
 int main() {
     printDeviceInfo();
     
     uint32_t hMasks[FILTEREDWORDS];
     Solution* hSolutions = new Solution[SOLUTIONS_SIZE]; // Heap allocated
     getMasks(hMasks, noAnagramsWords);
+    assert(hMasks[0] = 153 && hMasks[1] == 2305);
 
-    uint32_t *dMasks;
+    uint32_t* dMasks;
     Solution* dSolutions;
-    cudaMalloc((void **)(&dMasks), FILTEREDWORDS_SIZE);
     cudaMalloc((void **)(&dSolutions), SOLUTIONS_SIZE * sizeof(Solution));
-
+    cudaMalloc((void **)(&dMasks), FILTEREDWORDS_SIZE);
+    // cudaMemcpyToSymbol(dMasks, hMasks, FILTEREDWORDS_SIZE, 0, cudaMemcpyHostToDevice);
     cudaMemcpy(dMasks, hMasks, FILTEREDWORDS_SIZE, cudaMemcpyHostToDevice);
+    checkCudaErrors();
 
     std::cout << "Calling kernel" << std::endl;
-
     Kernel<<<BLOCKS, THREADSPERBLOCK>>>(dMasks, dSolutions);
+    checkCudaErrors();
     cudaDeviceSynchronize();
 
     std::cout << "Kernel complete" << std::endl;

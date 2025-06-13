@@ -1,18 +1,32 @@
-In 30 minutes:
+Notes: Using constant memory for dMasks is slower than global memory, likely because of a large amount of cache misses
 
-4214 solutions found
-
-In 60 minutes:
-
-10214 solultions found - at this rate, with a total solutions close to 30 million, we would expect this to take roughly 122 days
-
-
-
-
-Threads per block vs solultions in 1 minute
-64      -   18
-256     -   16
-1024    -   11
+Threads per block vs solultions
+64      -   18      1   minute
+256     -   16      1   minute
+1024    -   11      1   minute
 
 With one fewer loop replaced by gid + indexing:
-64      -   235
+64      -   235     1   minute
+
+With no more structs
+64  -   345     1   minute
+64  -   1654    3   minuts
+64  -   9673    10  minutes
+96  -   308     1   minute
+96  -   1470    3   minutes
+96  -   7733    10  minutes
+
+with -O1
+64  -   340     1   minute
+64  -   1609    3   minutes
+64  -   9463    10  minutes
+
+with -O0 and grid stride 10 (PROBABLY NOT CORRECT)
+64  -   602     1   minute
+64  -   12446   10  minutes
+
+with roughly 1M threads instead of 70M using grid stride
+64  -   110     1   minute
+64  -   693     3   minutes
+64  -   2847    6   minutes
+64  -   8051    10  minutes
