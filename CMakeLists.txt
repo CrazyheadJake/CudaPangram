@@ -8,6 +8,15 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
 endif()
 
+# File is apparently too big
+# For MSVC host compiler
+if (MSVC)
+    add_compile_options(/bigobj)
+endif()
+
+# For NVCC compiler
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --compiler-options /bigobj")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR})

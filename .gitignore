@@ -9,3 +9,7 @@ CudaPangram.exe
 CudaPangram.pdb
 .vscode
 solutions.txt
+filteredWords.txt
+include/allWords.inl
+allWords.txt
+allsolutions.txt

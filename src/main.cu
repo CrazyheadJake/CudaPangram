@@ -8,13 +8,20 @@
 #include <string>
 #include <vector>
 #include <cassert>
+#include <sstream>
+
 #include "filteredWords.inl"
+#include "allWords.inl"
 
 namespace fs = std::filesystem;
 
 const int THREADSPERBLOCK = 64;
-const int FILTEREDWORDS = 8401;
-const int FILTEREDWORDS_SIZE = FILTEREDWORDS * sizeof(uint32_t);
+const int ALLWORDS = 14855;
+const int ALLWORDS_SIZE = ALLWORDS * sizeof(uint32_t);
+// const int FILTEREDWORDS = 8401;
+// const int FILTEREDWORDS_SIZE = FILTEREDWORDS * sizeof(uint32_t);
+const int FILTEREDWORDS = ALLWORDS;
+const int FILTEREDWORDS_SIZE = ALLWORDS_SIZE;
 const int BLOCKS = 16384;
 const int STRIDE = BLOCKS*THREADSPERBLOCK;
 const int SOLUTIONS_SIZE = 80000000;
@@ -25,9 +32,9 @@ const uint32_t LVL_3_MASK = 1 << 28;
 const uint32_t LVL_4_MASK = 1 << 29;
 
 const uint32_t CACHE_SIZE = 1 << 30;
-const uint8_t CACHE_EMPTY = 0;
-const uint8_t CACHE_NOSOLUTIONS = 1;
-const uint8_t CACHE_HAS_SOLUTION = 2;
+const uint16_t CACHE_EMPTY = UINT16_MAX;
+const uint16_t CACHE_NOSOLUTIONS = 1;
+const uint16_t CACHE_HAS_SOLUTION = UINT16_MAX-1;
 
 
 __device__ uint32_t solutionIdx = 0;
@@ -44,13 +51,13 @@ struct Solution {
 
 
 // CUDA kernel
-__global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) {
+__global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache) {
     uint32_t gridId = (blockIdx.x*blockDim.x + threadIdx.x);
     uint32_t idx;
     uint32_t w0, w1, w2, w3, w4, w5;
     uint32_t m1, m2, m3, m4;
     uint32_t gid;
-    uint8_t cacheValue;
+    uint16_t cacheValue;
     for (gid = gridId; gid < FILTEREDWORDS*FILTEREDWORDS; gid += STRIDE) {
     w0 = gid / FILTEREDWORDS;
     w1 = w0 + gid % FILTEREDWORDS;
@@ -60,22 +67,13 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) 
 
     m1 = dMasks[w0] | dMasks[w1];
 
-    // Check the cache, add to cache if missing
+    // If cache value = x, then you must check all words <= x 
+    // Check the cache, skip if we know there are know solutions
     cacheValue = dCache[m1 | LVL_1_MASK];
-    if (cacheValue != CACHE_EMPTY) {
-        if (cacheValue == CACHE_HAS_SOLUTION) {
-            // Atomically increment the counter to reserve the index
-            idx = atomicAdd(&solutionIdx, 1);
-            dSolutions[idx] = {w0, w1, m1 | LVL_1_MASK, 0, 0, 0};
-            printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
-        }
-        atomicAdd(&cacheHits1, 1);
+    if (w1 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
         continue;
     }
 
-    // else {
-    //     dCache[m1 | LVL_1_MASK] = true;
-    // }
 
     for (w2 = w1 + 1; w2 < FILTEREDWORDS; w2++) {
         m2 = dMasks[w2] | m1;
@@ -83,21 +81,12 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) 
         if (__popc(m2) < 11)
             continue;
 
-        // Check the cache, add to cache if missing
+
+        // Check the cache, skip if we know there are know solutions
         cacheValue = dCache[m2 | LVL_2_MASK];
-        if (cacheValue != CACHE_EMPTY) {
-            if (cacheValue == CACHE_HAS_SOLUTION) {
-                // Atomically increment the counter to reserve the index
-                idx = atomicAdd(&solutionIdx, 1);
-                dSolutions[idx] = {w0, w1, w2, m2 | LVL_2_MASK, 0, 0};
-                printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
-            }
-            atomicAdd(&cacheHits2, 1);
+        if (w2 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
             continue;
         }
-        // else {
-        //     dCache[m2 | LVL_2_MASK] = true;
-        // }
 
         for (w3 = w2 + 1; w3 < FILTEREDWORDS; w3++) {
             m3 = dMasks[w3] | m2;
@@ -105,21 +94,11 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) 
             if (__popc(m3) < 16)
                 continue;
 
-            // Check the cache, add to cache if missing
+            // Check the cache, skip if we know there are know solutions
             cacheValue = dCache[m3 | LVL_3_MASK];
-            if (cacheValue != CACHE_EMPTY) {
-                if (cacheValue == CACHE_HAS_SOLUTION) {
-                    // Atomically increment the counter to reserve the index
-                    idx = atomicAdd(&solutionIdx, 1);
-                    dSolutions[idx] = {w0, w1, w2, w3, m3 | LVL_3_MASK, 0};
-                    printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
-                }
-                atomicAdd(&cacheHits3, 1);
+            if (w3 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
                 continue;
             }
-            // else {
-            //     dCache[m3 | LVL_3_MASK] = true;
-            // }
 
             for (w4 = w3 + 1; w4 < FILTEREDWORDS; w4++) {
                 m4 = dMasks[w4] | m3;
@@ -127,21 +106,11 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) 
                 if (__popc(m4) < 21)
                     continue;
                 
-                // Check the cache, add to cache if missing
+                // Check the cache, skip if we know there are know solutions
                 cacheValue = dCache[m4 | LVL_4_MASK];
-                if (cacheValue != CACHE_EMPTY) {
-                    if (cacheValue == CACHE_HAS_SOLUTION) {
-                        // Atomically increment the counter to reserve the index
-                        idx = atomicAdd(&solutionIdx, 1);
-                        dSolutions[idx] = {w0, w1, w2, w3, w4, m4 | LVL_4_MASK};
-                        printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
-                    }
-                    atomicAdd(&cacheHits4, 1);
+                if (w4 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
                     continue;
                 }
-                // else {
-                //     dCache[m4 | LVL_4_MASK] = true;
-                // }  
 
                 for (w5 = w4 + 1; w5 < FILTEREDWORDS; w5++) {
                     if ((dMasks[w5] | m4) == PANGRAMMASK) {
@@ -158,20 +127,20 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint8_t* dCache) 
                         printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
                     }
                 }
-                if (dCache[m4 | LVL_4_MASK] == CACHE_EMPTY) {
-                    dCache[m4 | LVL_4_MASK] = CACHE_NOSOLUTIONS;
+                if (dCache[m4 | LVL_4_MASK] > w4 && dCache[m4 | LVL_4_MASK] != CACHE_HAS_SOLUTION) {
+                    dCache[m4 | LVL_4_MASK] = w4;
                 }
             }
-            if (dCache[m3 | LVL_3_MASK] == CACHE_EMPTY) {
-                dCache[m3 | LVL_3_MASK] = CACHE_NOSOLUTIONS;
+            if (dCache[m3 | LVL_3_MASK] > w3 && dCache[m3 | LVL_3_MASK] != CACHE_HAS_SOLUTION) {
+                dCache[m3 | LVL_3_MASK] = w3;
             }
         }
-        if (dCache[m2 | LVL_2_MASK] == CACHE_EMPTY) {
-            dCache[m2 | LVL_2_MASK] = CACHE_NOSOLUTIONS;
+        if (dCache[m2 | LVL_2_MASK] > w2 && dCache[m2 | LVL_2_MASK] != CACHE_HAS_SOLUTION) {
+            dCache[m2 | LVL_2_MASK] = w2;
         }
     }
-    if (dCache[m1 | LVL_1_MASK] == CACHE_EMPTY) {
-        dCache[m1 | LVL_1_MASK] = CACHE_NOSOLUTIONS;
+    if (dCache[m1 | LVL_1_MASK] > w1 && dCache[m1 | LVL_1_MASK] != CACHE_HAS_SOLUTION) {
+        dCache[m1 | LVL_1_MASK] = w1;
     }
 }
 }
@@ -222,6 +191,24 @@ void writeSolutions(Solution* hSolutions, int numSolutions, const std::string& f
     output.close();
 }
 
+void writeWords(Solution* hSolutions, int numSolutions, const std::string& filename) {
+    std::ofstream output;
+    output.open(filename);
+    if (!output.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        exit(1); // Indicate an error
+    }
+
+    std::ostringstream buffer;
+    for (int i = 0; i < numSolutions; ++i) {
+        for (int j = 0; j < 6; ++j) {
+            buffer << allWords[hSolutions[i].words[j]];
+            buffer << (j < 5 ? "," : "\n");
+        }
+    }
+    output << buffer.str();  // One big write
+}
+
 void writeMasks(uint32_t* hMasks, const std::string& filename) {
     std::ofstream output;
     output.open(filename);
@@ -268,20 +255,20 @@ int main() {
     
     uint32_t hMasks[FILTEREDWORDS];
     Solution* hSolutions = new Solution[SOLUTIONS_SIZE]; // Heap allocated
-    getMasks(hMasks, noAnagramsWords);
+    getMasks(hMasks, allWords);
     assert(hMasks[0] = 153 && hMasks[1] == 2305);
 
     uint32_t* dMasks;
     Solution* dSolutions;
-    uint8_t* dCache;
+    uint16_t* dCache;
     cudaMalloc((void **)(&dSolutions), SOLUTIONS_SIZE * sizeof(Solution));
     cudaMalloc((void **)(&dMasks), FILTEREDWORDS_SIZE);
-    cudaMalloc((void **)(&dCache), CACHE_SIZE * sizeof(uint8_t));
+    cudaMalloc((void **)(&dCache), CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
     // cudaMemcpyToSymbol(dMasks, hMasks, FILTEREDWORDS_SIZE, 0, cudaMemcpyHostToDevice);
     cudaMemcpy(dMasks, hMasks, FILTEREDWORDS_SIZE, cudaMemcpyHostToDevice);
-    cudaMemset(dCache, CACHE_EMPTY, CACHE_SIZE * sizeof(uint8_t));
+    cudaMemset(dCache, CACHE_EMPTY, CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
     std::cout << "Calling kernel" << std::endl;
@@ -305,7 +292,7 @@ int main() {
     //     }
     // }
 
-    writeSolutions(hSolutions, numSolutions, "solutions.txt");
+    writeWords(hSolutions, numSolutions, "allsolutions.txt");
 
     delete hSolutions;
 
