@@ -30,3 +30,5 @@ with roughly 1M threads instead of 70M using grid stride
 64  -   693     3   minutes
 64  -   2847    6   minutes
 64  -   8051    10  minutes
+64  -   16108   14  minutes
+64  -   18488   15  minutes

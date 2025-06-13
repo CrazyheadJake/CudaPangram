@@ -9,7 +9,7 @@ def main():
         lines = f.readlines()
         lines = [line.strip() for line in lines]
 
-    word_indices = [26, 7647, 7668, 7949, 8000, 8001]
+    word_indices = [624, 1285, 3564, 4417, 6350, 8000]
 
     for i in word_indices:
         print(lines[i + 1])
