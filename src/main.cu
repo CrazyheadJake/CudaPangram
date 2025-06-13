@@ -1,4 +1,3 @@
-#include "kernel.cuh"
 #include <cuda_runtime.h>   // CUDA runtime API
 #include <device_launch_parameters.h> // Optional: threadIdx, blockIdx, etc.
 #include <iostream>
@@ -38,10 +37,6 @@ const uint16_t CACHE_HAS_SOLUTION = UINT16_MAX-1;
 
 
 __device__ uint32_t solutionIdx = 0;
-__device__ uint32_t cacheHits1 = 0;
-__device__ uint32_t cacheHits2 = 0;
-__device__ uint32_t cacheHits3 = 0;
-__device__ uint32_t cacheHits4 = 0;
 
 const int PANGRAMMASK = (1 << 26) - 1;       //stringToMask("abcdefghijklmnopqrstuvwxyz")
 
@@ -58,92 +53,95 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
     uint32_t m1, m2, m3, m4;
     uint32_t gid;
     uint16_t cacheValue;
+
+    // Grid stride looping to use fewer threads while still covering search space
     for (gid = gridId; gid < FILTEREDWORDS*FILTEREDWORDS; gid += STRIDE) {
-    w0 = gid / FILTEREDWORDS;
-    w1 = w0 + gid % FILTEREDWORDS;
-   
-    if (w0 >= FILTEREDWORDS || w1 >= FILTEREDWORDS)
-        continue;
-
-    m1 = dMasks[w0] | dMasks[w1];
-
-    // If cache value = x, then you must check all words <= x 
-    // Check the cache, skip if we know there are know solutions
-    cacheValue = dCache[m1 | LVL_1_MASK];
-    if (w1 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
-        continue;
-    }
-
-    for (w2 = w1 + 1; w2 < FILTEREDWORDS; w2++) {
-        m2 = dMasks[w2] | m1;
-        // Count how many bits in the mask are set 
-        if (__popc(m2) < 11)
+        w0 = gid / FILTEREDWORDS;
+        w1 = w0 + gid % FILTEREDWORDS;
+        
+        // If out of bounds, skip
+        if (w0 >= FILTEREDWORDS || w1 >= FILTEREDWORDS)
             continue;
 
-
+        m1 = dMasks[w0] | dMasks[w1];
+        // If cache value = x, then you must check all words <= x 
         // Check the cache, skip if we know there are know solutions
-        cacheValue = dCache[m2 | LVL_2_MASK];
-        if (w2 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
+        cacheValue = dCache[m1 | LVL_1_MASK];
+        if (w1 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
             continue;
         }
 
-        for (w3 = w2 + 1; w3 < FILTEREDWORDS; w3++) {
-            m3 = dMasks[w3] | m2;
+        for (w2 = w1 + 1; w2 < FILTEREDWORDS; w2++) {
+            m2 = dMasks[w2] | m1;
             // Count how many bits in the mask are set 
-            if (__popc(m3) < 16)
+            if (__popc(m2) < 11)
                 continue;
+
 
             // Check the cache, skip if we know there are know solutions
-            cacheValue = dCache[m3 | LVL_3_MASK];
-            if (w3 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
+            cacheValue = dCache[m2 | LVL_2_MASK];
+            if (w2 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
                 continue;
             }
 
-            for (w4 = w3 + 1; w4 < FILTEREDWORDS; w4++) {
-                m4 = dMasks[w4] | m3;
+            for (w3 = w2 + 1; w3 < FILTEREDWORDS; w3++) {
+                m3 = dMasks[w3] | m2;
                 // Count how many bits in the mask are set 
-                if (__popc(m4) < 21)
+                if (__popc(m3) < 16)
                     continue;
-                
+
                 // Check the cache, skip if we know there are know solutions
-                cacheValue = dCache[m4 | LVL_4_MASK];
-                if (w4 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
+                cacheValue = dCache[m3 | LVL_3_MASK];
+                if (w3 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
                     continue;
                 }
 
-                for (w5 = w4 + 1; w5 < FILTEREDWORDS; w5++) {
-                    if ((dMasks[w5] | m4) == PANGRAMMASK) {
-                        // Tell all layers of relevant cache that a solution has been found
-                        dCache[m1 | LVL_1_MASK] = CACHE_HAS_SOLUTION;
-                        dCache[m2 | LVL_2_MASK] = CACHE_HAS_SOLUTION;
-                        dCache[m3 | LVL_3_MASK] = CACHE_HAS_SOLUTION;
-                        dCache[m4 | LVL_4_MASK] = CACHE_HAS_SOLUTION;
+                for (w4 = w3 + 1; w4 < FILTEREDWORDS; w4++) {
+                    m4 = dMasks[w4] | m3;
+                    // Count how many bits in the mask are set 
+                    if (__popc(m4) < 21)
+                        continue;
+                    
+                    // Check the cache, skip if we know there are know solutions
+                    cacheValue = dCache[m4 | LVL_4_MASK];
+                    if (w4 > cacheValue && cacheValue != CACHE_HAS_SOLUTION) {
+                        continue;
+                    }
 
-                        // Atomically increment the counter to reserve the index
-                        idx = atomicAdd(&solutionIdx, 1);
-                        dSolutions[idx] = {w0, w1, w2, w3, w4, w5};
-                        // printf("%d, %d, %d, %d, %d, %d\t\tMasks: %d, %d, %d, %d, %d\n", w0, w1, w2, w3, w4, w5, dMasks[w1], dMasks[w2], dMasks[w3], dMasks[w4], dMasks[w5]);
-                        printf("Solutions: %d, Cache Hits: %d, %d, %d, %d\n", idx + 1, cacheHits1, cacheHits2, cacheHits3, cacheHits4);
+                    for (w5 = w4 + 1; w5 < FILTEREDWORDS; w5++) {
+                        if ((dMasks[w5] | m4) == PANGRAMMASK) {
+                            // Tell all layers of relevant cache that a solution has been found
+                            dCache[m1 | LVL_1_MASK] = CACHE_HAS_SOLUTION;
+                            dCache[m2 | LVL_2_MASK] = CACHE_HAS_SOLUTION;
+                            dCache[m3 | LVL_3_MASK] = CACHE_HAS_SOLUTION;
+                            dCache[m4 | LVL_4_MASK] = CACHE_HAS_SOLUTION;
+
+                            // Atomically increment the counter to reserve the index
+                            idx = atomicAdd(&solutionIdx, 1);
+                            dSolutions[idx] = {w0, w1, w2, w3, w4, w5};
+                            printf("Solutions: %d", idx + 1);
+                        }
+                    }
+                    // For each depth, if there was no solution found in the search tree, mark the branch as skippable
+                    if (dCache[m4 | LVL_4_MASK] > w4 && dCache[m4 | LVL_4_MASK] != CACHE_HAS_SOLUTION) {
+                        dCache[m4 | LVL_4_MASK] = w4;
                     }
                 }
-                if (dCache[m4 | LVL_4_MASK] > w4 && dCache[m4 | LVL_4_MASK] != CACHE_HAS_SOLUTION) {
-                    dCache[m4 | LVL_4_MASK] = w4;
+                if (dCache[m3 | LVL_3_MASK] > w3 && dCache[m3 | LVL_3_MASK] != CACHE_HAS_SOLUTION) {
+                    dCache[m3 | LVL_3_MASK] = w3;
                 }
             }
-            if (dCache[m3 | LVL_3_MASK] > w3 && dCache[m3 | LVL_3_MASK] != CACHE_HAS_SOLUTION) {
-                dCache[m3 | LVL_3_MASK] = w3;
+            if (dCache[m2 | LVL_2_MASK] > w2 && dCache[m2 | LVL_2_MASK] != CACHE_HAS_SOLUTION) {
+                dCache[m2 | LVL_2_MASK] = w2;
             }
         }
-        if (dCache[m2 | LVL_2_MASK] > w2 && dCache[m2 | LVL_2_MASK] != CACHE_HAS_SOLUTION) {
-            dCache[m2 | LVL_2_MASK] = w2;
+        if (dCache[m1 | LVL_1_MASK] > w1 && dCache[m1 | LVL_1_MASK] != CACHE_HAS_SOLUTION) {
+            dCache[m1 | LVL_1_MASK] = w1;
         }
     }
-    if (dCache[m1 | LVL_1_MASK] > w1 && dCache[m1 | LVL_1_MASK] != CACHE_HAS_SOLUTION) {
-        dCache[m1 | LVL_1_MASK] = w1;
-    }
-}
 }
 
+// Convert string to a bitmask of letters used in the string
 uint32_t stringToMask(const std::string& str) {
     uint32_t mask = 0;
     for (char c : str) {
@@ -158,7 +156,7 @@ void readData(uint32_t* hWords) {
 
     if (!input.is_open()) {
         std::cerr << "Error opening file!" << std::endl;
-        exit(1); // Indicate an error
+        exit(1);
     }
 
     std::string line;
@@ -171,12 +169,13 @@ void readData(uint32_t* hWords) {
     input.close();
 }
 
+// Write solutions in the form of integers to a file, NOTE THAT THIS IS EXCRUCIATINGLY SLOW AND UNOPTIMIZED
 void writeSolutions(Solution* hSolutions, int numSolutions, const std::string& filename) {
     std::ofstream output;
     output.open(filename);
     if (!output.is_open()) {
         std::cerr << "Error opening file: " << filename << std::endl;
-        exit(1); // Indicate an error
+        exit(1);
     }
 
     for (int i = 0; i < numSolutions; i++) {
@@ -195,7 +194,7 @@ void writeWords(Solution* hSolutions, int numSolutions, const std::string& filen
     output.open(filename);
     if (!output.is_open()) {
         std::cerr << "Error opening file: " << filename << std::endl;
-        exit(1); // Indicate an error
+        exit(1);
     }
 
     std::ostringstream buffer;
@@ -217,7 +216,7 @@ void writeMasks(uint32_t* hMasks, const std::string& filename) {
     output.open(filename);
     if (!output.is_open()) {
         std::cerr << "Error opening file: " << filename << std::endl;
-        exit(1); // Indicate an error
+        exit(1);
     }
 
     for (int i = 0; i < FILTEREDWORDS; i++) {
@@ -256,11 +255,13 @@ void checkCudaErrors() {
 int main() {
     printDeviceInfo();
     
+    // Initialize variables on the host (CPU)
     uint32_t hMasks[FILTEREDWORDS];
-    Solution* hSolutions = new Solution[SOLUTIONS_SIZE]; // Heap allocated
+    Solution* hSolutions = new Solution[SOLUTIONS_SIZE];    // Too big for the stack
     getMasks(hMasks, allWords);
     assert(hMasks[0] = 153 && hMasks[1] == 2305);
 
+    // Initialize and allocate memory on the device (GPU)
     uint32_t* dMasks;
     Solution* dSolutions;
     uint16_t* dCache;
@@ -269,35 +270,26 @@ int main() {
     cudaMalloc((void **)(&dCache), CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
-    // cudaMemcpyToSymbol(dMasks, hMasks, FILTEREDWORDS_SIZE, 0, cudaMemcpyHostToDevice);
+    // Copy values over to the device from the host
     cudaMemcpy(dMasks, hMasks, FILTEREDWORDS_SIZE, cudaMemcpyHostToDevice);
     cudaMemset(dCache, CACHE_EMPTY, CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
+    // Launch the kernel
     std::cout << "Calling kernel" << std::endl;
     Kernel<<<BLOCKS, THREADSPERBLOCK>>>(dMasks, dSolutions, dCache);
     checkCudaErrors();
     cudaDeviceSynchronize();
-
     std::cout << "Kernel complete" << std::endl;
 
-    // Copy result back to host
+    // Copy data from the device back to the host
     int numSolutions;
     cudaMemcpyFromSymbol(&numSolutions, solutionIdx, sizeof(int));
     cudaMemcpy(hSolutions, dSolutions, SOLUTIONS_SIZE * sizeof(Solution), cudaMemcpyDeviceToHost);
-    // uint8_t* hCache = new uint8_t[CACHE_SIZE];
-    // cudaMemcpy(hCache, dCache, CACHE_SIZE * sizeof(uint8_t), cudaMemcpyDeviceToHost);
-    // uint32_t cachedSolutions = 0;
-    // std::cout << "Counting solutions";
-    // for (uint32_t i = 0; i < CACHE_SIZE; i++) {
-    //     if (hCache[i] == CACHE_HAS_SOLUTION) {
-    //         cachedSolutions++;
-    //     }
-    // }
 
-    writeWords(hSolutions, numSolutions, "allsolutions_formatted.txt");
+    // Write output to file
+    writeWords(hSolutions, numSolutions, "solutions.txt");
 
     delete hSolutions;
-
     return 0;
 }
