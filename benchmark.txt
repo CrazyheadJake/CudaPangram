@@ -1,4 +1,5 @@
 Notes: Using constant memory for dMasks is slower than global memory, likely because of a large amount of cache misses
+Adding a cache to store which branches of the search space we can cut off MASSIVELY speeds the program up ~10,000x 
 
 Threads per block vs solultions
 64      -   18      1   minute
@@ -32,3 +33,8 @@ with roughly 1M threads instead of 70M using grid stride
 64  -   8051    10  minutes
 64  -   16108   14  minutes
 64  -   18488   15  minutes
+
+Cache added, program complete!
+64  -   54470138    7:21 minutes
+File written in 2:52 minutes
+Program finished in 10:13 minutes

@@ -74,7 +74,6 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
         continue;
     }
 
-
     for (w2 = w1 + 1; w2 < FILTEREDWORDS; w2++) {
         m2 = dMasks[w2] | m1;
         // Count how many bits in the mask are set 
@@ -200,10 +199,14 @@ void writeWords(Solution* hSolutions, int numSolutions, const std::string& filen
     }
 
     std::ostringstream buffer;
-    for (int i = 0; i < numSolutions; ++i) {
-        for (int j = 0; j < 6; ++j) {
-            buffer << allWords[hSolutions[i].words[j]];
-            buffer << (j < 5 ? "," : "\n");
+    std::string word;
+    for (int i = 0; i < numSolutions; i++) {
+        for (int j = 0; j < 6; j++) {
+            word = allWords[hSolutions[i].words[j]];
+            std::transform(word.begin(), word.end(), word.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
+            buffer << word;
+            buffer << (j < 5 ? " " : "\n");
         }
     }
     output << buffer.str();  // One big write
@@ -292,7 +295,7 @@ int main() {
     //     }
     // }
 
-    writeWords(hSolutions, numSolutions, "allsolutions.txt");
+    writeWords(hSolutions, numSolutions, "allsolutions_formatted.txt");
 
     delete hSolutions;
 
