@@ -10,9 +10,9 @@ endif()
 
 # File is apparently too big
 # For MSVC host compiler
-if (MSVC)
-    add_compile_options(/bigobj)
-endif()
+# if (MSVC)
+#     add_compile_options(/bigobj)
+# endif()
 
 # For NVCC compiler
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --compiler-options /bigobj")
@@ -55,9 +55,9 @@ target_link_libraries(${PROJECT_NAME}
 target_compile_options(${PROJECT_NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:
         --diag-suppress=177   # Suppress warnings
-        --ptxas-options=-v
-        --maxrregcount=0
-        -O0
+        # --ptxas-options=-v
+        # --maxrregcount=0
+        # -O0
     >
     $<$<COMPILE_LANGUAGE:CXX>:
         /Od

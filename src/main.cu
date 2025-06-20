@@ -17,10 +17,6 @@ namespace fs = std::filesystem;
 const int THREADSPERBLOCK = 64;
 const int ALLWORDS = 14855;
 const int ALLWORDS_SIZE = ALLWORDS * sizeof(uint32_t);
-// const int FILTEREDWORDS = 8401;
-// const int FILTEREDWORDS_SIZE = FILTEREDWORDS * sizeof(uint32_t);
-const int FILTEREDWORDS = ALLWORDS;
-const int FILTEREDWORDS_SIZE = ALLWORDS_SIZE;
 const int BLOCKS = 16384;
 const int STRIDE = BLOCKS*THREADSPERBLOCK;
 const int SOLUTIONS_SIZE = 80000000;
@@ -55,12 +51,12 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
     uint16_t cacheValue;
 
     // Grid stride looping to use fewer threads while still covering search space
-    for (gid = gridId; gid < FILTEREDWORDS*FILTEREDWORDS; gid += STRIDE) {
-        w0 = gid / FILTEREDWORDS;
-        w1 = w0 + gid % FILTEREDWORDS;
-        
+    for (gid = gridId; gid < ALLWORDS*ALLWORDS; gid += STRIDE) {
+        w0 = gid / ALLWORDS;
+        w1 = w0 + gid % ALLWORDS + 1;
+
         // If out of bounds, skip
-        if (w0 >= FILTEREDWORDS || w1 >= FILTEREDWORDS)
+        if (w0 >= ALLWORDS || w1 >= ALLWORDS)
             continue;
 
         m1 = dMasks[w0] | dMasks[w1];
@@ -71,12 +67,12 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
             continue;
         }
 
-        for (w2 = w1 + 1; w2 < FILTEREDWORDS; w2++) {
+        for (w2 = w1 + 1; w2 < ALLWORDS; w2++) {
             m2 = dMasks[w2] | m1;
             // Count how many bits in the mask are set 
             if (__popc(m2) < 11)
                 continue;
-
+            
 
             // Check the cache, skip if we know there are know solutions
             cacheValue = dCache[m2 | LVL_2_MASK];
@@ -84,7 +80,7 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
                 continue;
             }
 
-            for (w3 = w2 + 1; w3 < FILTEREDWORDS; w3++) {
+            for (w3 = w2 + 1; w3 < ALLWORDS; w3++) {
                 m3 = dMasks[w3] | m2;
                 // Count how many bits in the mask are set 
                 if (__popc(m3) < 16)
@@ -96,7 +92,7 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
                     continue;
                 }
 
-                for (w4 = w3 + 1; w4 < FILTEREDWORDS; w4++) {
+                for (w4 = w3 + 1; w4 < ALLWORDS; w4++) {
                     m4 = dMasks[w4] | m3;
                     // Count how many bits in the mask are set 
                     if (__popc(m4) < 21)
@@ -108,7 +104,7 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
                         continue;
                     }
 
-                    for (w5 = w4 + 1; w5 < FILTEREDWORDS; w5++) {
+                    for (w5 = w4 + 1; w5 < ALLWORDS; w5++) {
                         if ((dMasks[w5] | m4) == PANGRAMMASK) {
                             // Tell all layers of relevant cache that a solution has been found
                             dCache[m1 | LVL_1_MASK] = CACHE_HAS_SOLUTION;
@@ -119,7 +115,8 @@ __global__ void Kernel(uint32_t* dMasks, Solution* dSolutions, uint16_t* dCache)
                             // Atomically increment the counter to reserve the index
                             idx = atomicAdd(&solutionIdx, 1);
                             dSolutions[idx] = {w0, w1, w2, w3, w4, w5};
-                            printf("Solutions: %d", idx + 1);
+                            if (idx % 100000 == 99999)
+                                printf("Solutions: %d\n", idx + 1);
                         }
                     }
                     // For each depth, if there was no solution found in the search tree, mark the branch as skippable
@@ -196,19 +193,30 @@ void writeWords(Solution* hSolutions, int numSolutions, const std::string& filen
         std::cerr << "Error opening file: " << filename << std::endl;
         exit(1);
     }
-
+    std::cout << "Sorting pangrams" << std::endl;
     std::ostringstream buffer;
+    std::stringstream temp;
     std::string word;
+    std::vector<std::string> words;
     for (int i = 0; i < numSolutions; i++) {
         for (int j = 0; j < 6; j++) {
             word = allWords[hSolutions[i].words[j]];
             std::transform(word.begin(), word.end(), word.begin(),
                    [](unsigned char c) { return std::toupper(c); });
-            buffer << word;
-            buffer << (j < 5 ? " " : "\n");
+            temp << word;
+            temp << (j < 5 ? " " : "\n");
         }
+        words.push_back(temp.str());
+        temp.str("");
     }
+    // Sort the pangrams alphabetically
+    std::sort(words.begin(), words.end());
+    for (int i = 0; i < numSolutions; i++) {
+        buffer << words[i];
+    }
+    std::cout << "Writing to file" << std::endl;
     output << buffer.str();  // One big write
+    output.close();
 }
 
 void writeMasks(uint32_t* hMasks, const std::string& filename) {
@@ -219,7 +227,7 @@ void writeMasks(uint32_t* hMasks, const std::string& filename) {
         exit(1);
     }
 
-    for (int i = 0; i < FILTEREDWORDS; i++) {
+    for (int i = 0; i < ALLWORDS; i++) {
         output << hMasks[i] << std::endl;
 
     }
@@ -228,7 +236,7 @@ void writeMasks(uint32_t* hMasks, const std::string& filename) {
 }
 
 void getMasks(uint32_t* hMasks, std::string* words) {
-    for (int i = 0; i < FILTEREDWORDS; i++) {
+    for (int i = 0; i < ALLWORDS; i++) {
         hMasks[i] = stringToMask(words[i]);
     }
 }
@@ -256,22 +264,22 @@ int main() {
     printDeviceInfo();
     
     // Initialize variables on the host (CPU)
-    uint32_t hMasks[FILTEREDWORDS];
+    uint32_t hMasks[ALLWORDS];
     Solution* hSolutions = new Solution[SOLUTIONS_SIZE];    // Too big for the stack
     getMasks(hMasks, allWords);
-    assert(hMasks[0] = 153 && hMasks[1] == 2305);
+    assert(hMasks[0] == 153 && hMasks[1] == 2305);
 
     // Initialize and allocate memory on the device (GPU)
     uint32_t* dMasks;
     Solution* dSolutions;
     uint16_t* dCache;
     cudaMalloc((void **)(&dSolutions), SOLUTIONS_SIZE * sizeof(Solution));
-    cudaMalloc((void **)(&dMasks), FILTEREDWORDS_SIZE);
+    cudaMalloc((void **)(&dMasks), ALLWORDS_SIZE);
     cudaMalloc((void **)(&dCache), CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
     // Copy values over to the device from the host
-    cudaMemcpy(dMasks, hMasks, FILTEREDWORDS_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy(dMasks, hMasks, ALLWORDS_SIZE, cudaMemcpyHostToDevice);
     cudaMemset(dCache, CACHE_EMPTY, CACHE_SIZE * sizeof(uint16_t));
     checkCudaErrors();
 
@@ -288,7 +296,7 @@ int main() {
     cudaMemcpy(hSolutions, dSolutions, SOLUTIONS_SIZE * sizeof(Solution), cudaMemcpyDeviceToHost);
 
     // Write output to file
-    writeWords(hSolutions, numSolutions, "solutions.txt");
+    writeWords(hSolutions, numSolutions, "solutions/final_solutions.txt");
 
     delete hSolutions;
     return 0;
